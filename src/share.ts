@@ -35,6 +35,21 @@ export interface ZXingReaderModule extends EmscriptenModule {
     imgHeight: number,
     zxingReaderOptions: ZXingReaderOptions,
   ): ZXingVector<ZXingReadResult>;
+
+  decodeImage(bufferPtr: number, bufferLength: number): ZXingDecodedImage;
+}
+
+export interface ZXingDecodedImage {
+  data: Uint8ClampedArray;
+  width: number;
+  height: number;
+  error: string;
+}
+
+export interface DecodedImage {
+  data: Uint8ClampedArray;
+  width: number;
+  height: number;
 }
 
 /**
@@ -391,6 +406,48 @@ export async function readBarcodesWithFactory<T extends "reader" | "full">(
     return readResults;
   } finally {
     zxingReadResultVector.delete();
+  }
+}
+
+/**
+ * Decodes PNG/JPEG/etc. bytes with stb_image (WASM) into RGBA pixels.
+ * ICC profiles and JPEG EXIF orientation are not applied.
+ */
+export async function decodeImageWithFactory<T extends "reader" | "full">(
+  zxingModuleFactory: ZXingModuleFactory<T>,
+  input: Blob | ArrayBuffer | Uint8Array,
+): Promise<DecodedImage> {
+  const zxingModule = await prepareZXingModuleWithFactory(zxingModuleFactory, {
+    fireImmediately: true,
+  });
+  let size: number;
+  let buffer: Uint8Array;
+  if ("buffer" in input) {
+    [size, buffer] = [input.byteLength, input];
+  } else if ("byteLength" in input) {
+    [size, buffer] = [input.byteLength, new Uint8Array(input)];
+  } else if ("size" in input) {
+    [size, buffer] = [input.size, new Uint8Array(await input.arrayBuffer())];
+  } else {
+    throw new TypeError("Invalid input type");
+  }
+  const bufferPtr = zxingModule._malloc(size);
+  if (!bufferPtr) {
+    throw new Error(`Failed to allocate ${size} bytes in WASM memory`);
+  }
+  try {
+    zxingModule.HEAPU8.set(buffer, bufferPtr);
+    const decoded = zxingModule.decodeImage(bufferPtr, size);
+    if (decoded.error) {
+      throw new Error(decoded.error);
+    }
+    return {
+      data: decoded.data,
+      width: decoded.width,
+      height: decoded.height,
+    };
+  } finally {
+    zxingModule._free(bufferPtr);
   }
 }
 

@@ -199,6 +199,26 @@ JsReadResults readBarcodesFromPixmap(int bufferPtr, int width, int height, const
   return readBarcodes({reinterpret_cast<const uint8_t *>(bufferPtr), width, height, ZXing::ImageFormat::Lum}, jsReaderOptions);
 }
 
+struct JsDecodedImage {
+  val data;
+  int width;
+  int height;
+  std::string error;
+};
+
+JsDecodedImage decodeImage(int bufferPtr, int bufferLength) {
+  int width, height, channels;
+  std::unique_ptr<stbi_uc, void (*)(void *)> pixels(
+    stbi_load_from_memory(reinterpret_cast<const stbi_uc *>(bufferPtr), bufferLength, &width, &height, &channels, 4), stbi_image_free
+  );
+  if (!pixels) {
+    return {.data = Uint8ClampedArray.new_(val(0)), .width = 0, .height = 0, .error = "Failed to load image from memory"};
+  }
+  // Copy into a JS-owned array; the stb buffer is released when `pixels` goes out of scope.
+  val data = Uint8ClampedArray.new_(val(typed_memory_view(static_cast<std::size_t>(width) * height * 4, pixels.get())));
+  return {.data = std::move(data), .width = width, .height = height};
+}
+
 #endif
 
 #if defined(WRITER)
@@ -360,8 +380,15 @@ EMSCRIPTEN_BINDINGS(ZXingWasm) {
 
   register_vector<JsReadResult>("ReadResults");
 
+  value_object<JsDecodedImage>("DecodedImage")
+    .field("data", &JsDecodedImage::data)
+    .field("width", &JsDecodedImage::width)
+    .field("height", &JsDecodedImage::height)
+    .field("error", &JsDecodedImage::error);
+
   function("readBarcodesFromImage", &readBarcodesFromImage);
   function("readBarcodesFromPixmap", &readBarcodesFromPixmap);
+  function("decodeImage", &decodeImage);
 
 #endif
 

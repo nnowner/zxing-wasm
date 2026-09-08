@@ -1,6 +1,8 @@
 import type { Merge } from "type-fest";
 import type { ReaderOptions, WriterOptions } from "../bindings/index.js";
 import {
+  type DecodedImage,
+  decodeImageWithFactory,
   type PrepareZXingModuleOptions,
   prepareZXingModuleWithFactory,
   purgeZXingModuleWithFactory,
@@ -107,9 +109,16 @@ export async function writeBarcode(
   return writeBarcodeWithFactory(zxingModuleFactory, input, writerOptions);
 }
 
+export async function decodeImage(
+  input: Blob | ArrayBuffer | Uint8Array,
+): Promise<DecodedImage> {
+  return decodeImageWithFactory(zxingModuleFactory, input);
+}
+
 export * from "../bindings/exposedReaderBindings.js";
 export * from "../bindings/exposedWriterBindings.js";
 export {
+  type DecodedImage,
   type PrepareZXingModuleOptions,
   ZXING_CPP_COMMIT,
   ZXING_WASM_VERSION,
