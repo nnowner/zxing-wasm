@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { beforeAll, describe, expect, test } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import * as full from "../src/full/index.js";
 import * as reader from "../src/reader/index.js";
 
@@ -69,6 +69,61 @@ describe.each([
     ]) {
       expect(await mod.decodeImage(input)).toEqual(expected);
     }
+  });
+
+  describe("Blobs without Blob#arrayBuffer (Safari 13, Chrome 75, Firefox 68)", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    // Mirrors the FileReader events readBlob listens to.
+    const stubFileReader = (event: "load" | "error" | "abort") =>
+      vi.stubGlobal(
+        "FileReader",
+        class {
+          result: ArrayBuffer | null = null;
+          error: DOMException | null = null;
+          onload: (() => void) | null = null;
+          onerror: (() => void) | null = null;
+          onabort: (() => void) | null = null;
+          readAsArrayBuffer() {
+            if (event === "load") {
+              this.result = toArrayBuffer(png);
+              this.onload?.();
+            } else if (event === "error") {
+              this.error = new DOMException(
+                "Failed to read",
+                "NotReadableError",
+              );
+              this.onerror?.();
+            } else {
+              this.onabort?.();
+            }
+          }
+        },
+      );
+    const blobWithoutArrayBuffer = { size: png.length } as Blob;
+
+    test("reads them through FileReader", async () => {
+      stubFileReader("load");
+      expect(await mod.decodeImage(blobWithoutArrayBuffer)).toEqual(
+        await mod.decodeImage(png),
+      );
+    });
+
+    test("rejects with the FileReader error", async () => {
+      stubFileReader("error");
+      await expect(mod.decodeImage(blobWithoutArrayBuffer)).rejects.toThrow(
+        expect.objectContaining({ name: "NotReadableError" }),
+      );
+    });
+
+    test("rejects with AbortError when reading is aborted", async () => {
+      stubFileReader("abort");
+      await expect(mod.decodeImage(blobWithoutArrayBuffer)).rejects.toThrow(
+        expect.objectContaining({ name: "AbortError" }),
+      );
+    });
   });
 
   test("decoded pixels can be fed back into readBarcodes", async () => {

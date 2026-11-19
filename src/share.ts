@@ -410,6 +410,26 @@ export async function readBarcodesWithFactory<T extends "reader" | "full">(
 }
 
 /**
+ * Reads a Blob into an ArrayBuffer. Some browsers in .browserslistrc (Safari 13,
+ * Chrome 75, Firefox 68) lack `Blob#arrayBuffer`, so this falls back to
+ * FileReader the same way readBarcodesWithFactory does.
+ *
+ * @internal
+ */
+function readBlob(blob: Blob) {
+  return typeof blob.arrayBuffer === "function"
+    ? blob.arrayBuffer()
+    : new Promise<ArrayBuffer>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as ArrayBuffer);
+        reader.onerror = () => reject(reader.error);
+        reader.onabort = () =>
+          reject(new DOMException("File reading aborted", "AbortError"));
+        reader.readAsArrayBuffer(blob);
+      });
+}
+
+/**
  * Decodes PNG/JPEG/etc. bytes with stb_image (WASM) into RGBA pixels.
  * ICC profiles and JPEG EXIF orientation are not applied.
  */
@@ -427,7 +447,7 @@ export async function decodeImageWithFactory<T extends "reader" | "full">(
   } else if ("byteLength" in input) {
     [size, buffer] = [input.byteLength, new Uint8Array(input)];
   } else if ("size" in input) {
-    [size, buffer] = [input.size, new Uint8Array(await input.arrayBuffer())];
+    [size, buffer] = [input.size, new Uint8Array(await readBlob(input))];
   } else {
     throw new TypeError("Invalid input type");
   }
